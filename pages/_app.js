@@ -1,5 +1,5 @@
 import '@/styles/globals.css'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/router'
 import Head from 'next/head'
 
@@ -9,6 +9,9 @@ function registerSW() {
     navigator.serviceWorker.register('/sw.js').catch(() => {})
   }
 }
+
+// Hook to capture install prompt
+let deferredPrompt = null;
 
 export default function App({ Component, pageProps }) {
   const router = useRouter()
@@ -22,6 +25,14 @@ export default function App({ Component, pageProps }) {
       setUser(JSON.parse(saved))
     }
     setLoading(false)
+
+    // Capture install prompt
+    const handler = (e) => {
+      e.preventDefault()
+      deferredPrompt = e
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
   }, [])
 
   const login = (userData, remember = false) => {
@@ -36,6 +47,25 @@ export default function App({ Component, pageProps }) {
     setUser(null)
     localStorage.removeItem('car_tracker_user')
     router.push('/')
+  }
+
+  const [installable, setInstallable] = useState(false)
+
+  useEffect(() => {
+    // Re-check install status periodically
+    const check = () => setInstallable(!!deferredPrompt)
+    const interval = setInterval(check, 2000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const handleInstall = async () => {
+    if (!deferredPrompt) return
+    deferredPrompt.prompt()
+    const result = await deferredPrompt.userChoice
+    if (result.outcome === 'accepted') {
+      deferredPrompt = null
+      setInstallable(false)
+    }
   }
 
   return (
@@ -54,7 +84,24 @@ export default function App({ Component, pageProps }) {
         appLoading={loading}
         onLogin={login}
         onLogout={logout}
+        installable={installable}
+        onInstall={handleInstall}
       />
+      {installable && (
+        <button
+          onClick={handleInstall}
+          style={{
+            position: 'fixed', bottom: '20px', right: '20px', zIndex: 9999,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white', border: 'none', borderRadius: '16px',
+            padding: '12px 20px', fontSize: '14px', fontWeight: 'bold',
+            boxShadow: '0 4px 20px rgba(102,126,234,0.4)',
+            cursor: 'pointer',
+          }}
+        >
+          📲 安裝 App
+        </button>
+      )}
     </>
   )
 }

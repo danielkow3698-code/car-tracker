@@ -1,24 +1,10 @@
-// Car Tracker Service Worker — v1
-const CACHE = 'car-tracker-v1';
-const STATIC_ASSETS = [
-  '/',
-  '/dashboard',
-  '/calendar',
-  '/stats',
-  '/manifest.json',
-  '/icon-192.svg',
-  '/icon-512.svg',
-];
+// Car Tracker Service Worker
+const CACHE = 'car-tracker-v2';
 
-// Install: cache static pages
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(STATIC_ASSETS))
-  );
-});
+// Install: just take over immediately, no pre-caching
+self.addEventListener('install', () => self.skipWaiting());
 
-// Activate: clean old caches
+// Activate: claim clients + clean old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     Promise.all([
@@ -30,14 +16,12 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch: network-first for pages, cache-first for static assets
+// Fetch: network-first, fall back to cache
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-
-  // Don't cache API requests
   if (url.pathname.startsWith('/api/')) return;
 
-  // Don't cache Next.js internal chunks (they have hash fingerprints)
+  // Static assets: cache-first (they have hash in URL)
   if (url.pathname.startsWith('/_next/static/')) {
     event.respondWith(
       caches.match(event.request).then((cached) => cached || fetch(event.request))
@@ -45,7 +29,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first for pages
+  // Icons & manifest: cache with long TTL
+  if (url.pathname.match(/\.(png|svg|ico|json)$/) && url.origin === self.location.origin) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((res) => {
+          const clone = res.clone();
+          caches.open(CACHE).then((cache) => cache.put(event.request, clone));
+          return res;
+        });
+      })
+    );
+    return;
+  }
+
+  // Pages: network-first (always try server first)
   event.respondWith(
     fetch(event.request)
       .then((response) => {
