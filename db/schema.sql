@@ -1,0 +1,38 @@
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  display_name TEXT NOT NULL,
+  pin TEXT DEFAULT '0000',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS car_status (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  status TEXT CHECK(status IN ('available', 'in_use')) NOT NULL DEFAULT 'available',
+  user_id INTEGER,
+  started_at DATETIME,
+  note TEXT DEFAULT '',
+  source TEXT DEFAULT 'manual',
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  purpose TEXT DEFAULT '',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS usage_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  started_at DATETIME NOT NULL,
+  ended_at DATETIME,
+  note TEXT DEFAULT '',
+  source TEXT DEFAULT 'manual',
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);

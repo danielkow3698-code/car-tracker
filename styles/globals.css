@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans TC', sans-serif;
+}
+
+/* ── Animated gradient background ── */
+.bg-mesh {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+}
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.bg-mesh-light {
+  background: linear-gradient(135deg, #e0e7ff 0%, #f0e6ff 50%, #fce7f3 100%);
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+}
+
+/* ── Glass morphism ── */
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.glass-nav {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* ── Driving car animation ── */
+@keyframes drive {
+  0% { transform: translateX(-20px) scaleX(-1); }
+  50% { transform: translateX(20px) scaleX(-1); }
+  100% { transform: translateX(-20px) scaleX(-1); }
+}
+.car-driving {
+  animation: drive 3s ease-in-out infinite;
+}
+
+@keyframes wheelSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.wheel-spin {
+  animation: wheelSpin 0.8s linear infinite;
+}
+
+/* ── Pulse glow ── */
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 5px rgba(59, 130, 246, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.6); }
+}
+.glow-blue {
+  animation: glow 2s ease-in-out infinite;
+}
+
+@keyframes glowGreen {
+  0%, 100% { box-shadow: 0 0 5px rgba(34, 197, 94, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.6); }
+}
+.glow-green {
+  animation: glowGreen 2s ease-in-out infinite;
+}
+
+/* ── Skeleton shimmer ── */
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+  background-size: 200px 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* ── Calendar day ── */
+.cal-day {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cal-day:hover {
+  transform: scale(1.08);
+}
+.cal-day:active {
+  transform: scale(0.95);
+}
+
+/* ── Scrollbar ── */
+.schedule-scroll::-webkit-scrollbar { width: 6px; }
+.schedule-scroll::-webkit-scrollbar-track { background: transparent; }
+.schedule-scroll::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full; }

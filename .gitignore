@@ -1,0 +1,8 @@
+node_modules/
+.next/
+data/
+db/car-tracker.db
+db/car-tracker.db-shm
+db/car-tracker.db-wal
+start-car-tracker.bat
+*.log
