@@ -2,7 +2,7 @@
   "name": "家庭用車管理",
   "short_name": "Car Tracker",
   "description": "家庭用車即時管理工具 — 查看車輛狀態、預約用車、查看統計",
-  "start_url": "/dashboard",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#f0f0ff",
   "theme_color": "#667eea",
