@@ -39,15 +39,19 @@ export default function LoginPage({ user, onLogin, appLoading }) {
   ];
 
   async function autoLogin(name, savedPin) {
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, pin: savedPin }),
-    });
-    const data = await res.json();
-    if (data.success) {
-      onLogin(data.user, true);
-      router.push('/dashboard');
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, pin: savedPin }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        onLogin(data.user, true);
+        router.push('/dashboard');
+      }
+    } catch (e) {
+      // auto-login failed, stay on login page
     }
   }
 
@@ -58,17 +62,22 @@ export default function LoginPage({ user, onLogin, appLoading }) {
   };
 
   const handlePinSubmit = async () => {
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: showPin.name, pin }),
-    });
-    const data = await res.json();
-    if (data.success) {
-      onLogin({ ...data.user, pin: remember ? pin : undefined }, remember);
-      router.push('/dashboard');
-    } else {
-      setError('PIN 錯誤，請再試一次');
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: showPin.name, pin }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        onLogin({ ...data.user, pin: remember ? pin : undefined }, remember);
+        router.push('/dashboard');
+      } else {
+        setError(data.error || '登入失敗，請再試一次');
+        setPin('');
+      }
+    } catch (e) {
+      setError('網路錯誤，無法連接到伺服器');
       setPin('');
     }
   };
