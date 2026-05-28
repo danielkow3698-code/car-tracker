@@ -1,221 +1,282 @@
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
-
-const PROJECT_ROOT = process.env.RAILWAY_VOLUME_MOUNT_PATH || process.cwd();
-const DB_PATH = process.env.DB_PATH || path.join(PROJECT_ROOT, 'data', 'car-tracker.db');
-const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
-
-let db;
-
-function getDb() {
-  if (!db) {
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-
-    const schema = fs.readFileSync(SCHEMA_PATH, 'utf-8');
-    db.exec(schema);
-
-    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
-    if (userCount.count === 0) {
-      const insertUser = db.prepare('INSERT INTO users (name, display_name, pin) VALUES (?, ?, ?)');
-      insertUser.run('daniel', 'Daniel', '1234');
-      insertUser.run('dad', '爸爸', '5678');
-      db.prepare('INSERT INTO car_status (status, note, source) VALUES (?, ?, ?)').run('available', '車輛可用', 'manual');
-    }
-  }
-  return db;
-}
+import { supabase } from '../lib/supabase'
 
 // ── Users ──
-function getUser(name) {
-  return getDb().prepare('SELECT * FROM users WHERE name = ?').get(name);
+export async function getUser(name) {
+  const { data } = await supabase
+    .from('users')
+    .select('*')
+    .eq('name', name)
+    .single()
+  return data
 }
 
-function verifyPin(name, pin) {
-  const user = getUser(name);
-  return user && user.pin === pin;
+export async function verifyPin(name, pin) {
+  const user = await getUser(name)
+  return user && user.pin === pin
 }
 
 // ── Car Status ──
-function getCarStatus() {
-  return getDb().prepare(`
-    SELECT cs.*, u.display_name as user_display_name
-    FROM car_status cs
-    LEFT JOIN users u ON cs.user_id = u.id
-    ORDER BY cs.id DESC LIMIT 1
-  `).get();
+export async function getCarStatus() {
+  const { data } = await supabase
+    .from('car_status')
+    .select('*, users!car_status_user_id_fkey(display_name)')
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!data) {
+    return { status: 'available', note: '車輛可用' }
+  }
+
+  return {
+    id: data.id,
+    status: data.status,
+    user_id: data.user_id,
+    user_display_name: data.users?.display_name || null,
+    started_at: data.started_at,
+    note: data.note,
+    source: data.source,
+  }
 }
 
-function takeCar(userId, note = '', source = 'manual') {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM car_status ORDER BY id DESC LIMIT 1').get();
+export async function takeCar(userId, note = '', source = 'manual') {
+  const { data: existing } = await supabase
+    .from('car_status')
+    .select('id')
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   if (existing) {
-    db.prepare("UPDATE car_status SET status = ?, user_id = ?, started_at = datetime('now', 'localtime'), note = ?, source = ? WHERE id = ?")
-      .run('in_use', userId, note, source, existing.id);
+    await supabase
+      .from('car_status')
+      .update({
+        status: 'in_use',
+        user_id: userId,
+        started_at: new Date().toISOString(),
+        note,
+        source,
+      })
+      .eq('id', existing.id)
   } else {
-    db.prepare("INSERT INTO car_status (status, user_id, started_at, note, source) VALUES (?, ?, datetime('now', 'localtime'), ?, ?)")
-      .run('in_use', userId, note, source);
+    await supabase.from('car_status').insert({
+      status: 'in_use',
+      user_id: userId,
+      started_at: new Date().toISOString(),
+      note,
+      source,
+    })
   }
-  // 記錄用車開始
-  startUsageLog(userId, note, source);
-  return getCarStatus();
+
+  // 紀錄用車開始
+  await supabase.from('usage_log').insert({
+    user_id: userId,
+    started_at: new Date().toISOString(),
+    note,
+    source,
+  })
+
+  return getCarStatus()
 }
 
-function returnCar(note = '', source = 'manual') {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM car_status ORDER BY id DESC LIMIT 1').get();
+export async function returnCar(note = '', source = 'manual') {
+  const { data: existing } = await supabase
+    .from('car_status')
+    .select('id, note')
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   if (existing) {
-    db.prepare('UPDATE car_status SET status = ?, user_id = NULL, started_at = NULL, note = ?, source = ? WHERE id = ?')
-      .run('available', note, source, existing.id);
+    await supabase
+      .from('car_status')
+      .update({
+        status: 'available',
+        user_id: null,
+        started_at: null,
+        note,
+        source,
+      })
+      .eq('id', existing.id)
   }
-  // 記錄用車結束
-  endUsageLog(note);
-  return getCarStatus();
-}
 
-// ── Usage Log ──
-function startUsageLog(userId, note, source) {
-  getDb().prepare(`INSERT INTO usage_log (user_id, started_at, note, source) VALUES (?, datetime('now', 'localtime'), ?, ?)`
-  ).run(userId, note, source);
-}
+  // 結束用車紀錄 — fetch the pending log and update it
+  const { data: pending } = await supabase
+    .from('usage_log')
+    .select('id, note')
+    .is('ended_at', null)
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
-function endUsageLog(note) {
-  const pending = getDb().prepare(
-    'SELECT id FROM usage_log WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1'
-  ).get();
   if (pending) {
-    getDb().prepare(`UPDATE usage_log SET ended_at = datetime('now', 'localtime'), note = note || ' → ' || ? WHERE id = ?`
-    ).run(note, pending.id);
+    await supabase
+      .from('usage_log')
+      .update({
+        ended_at: new Date().toISOString(),
+        note: `${pending.note || ''} → ${note}`,
+      })
+      .eq('id', pending.id)
   }
+
+  return getCarStatus()
 }
 
-function getUsageStats(days = 30) {
-  const db = getDb();
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  const cutoffStr = cutoff.toISOString().slice(0, 19).replace('T', ' ');
+// ── Usage Stats ──
+export async function getUsageStats(days = 30) {
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - days)
+  const cutoffStr = cutoff.toISOString()
 
-  // 每人使用次數 & 總時長
-  const perUser = db.prepare(`
-    SELECT u.display_name,
-           COUNT(ul.id) as trip_count,
-           COALESCE(SUM(
-             CAST(
-               (julianday(COALESCE(ul.ended_at, datetime('now', 'localtime'))) - julianday(ul.started_at)) * 24 * 60
-             AS INTEGER)
-           ), 0) as total_minutes
-    FROM usage_log ul
-    JOIN users u ON ul.user_id = u.id
-    WHERE ul.started_at >= ?
-    GROUP BY ul.user_id
-    ORDER BY total_minutes DESC
-  `).all(cutoffStr);
+  // 每人使用統計
+  const { data: logs } = await supabase
+    .from('usage_log')
+    .select('user_id, started_at, ended_at, users!usage_log_user_id_fkey(display_name)')
+    .gte('started_at', cutoffStr)
+
+  const userMap = {}
+  for (const log of logs || []) {
+    const displayName = log.users?.display_name || 'Unknown'
+    if (!userMap[displayName]) userMap[displayName] = { display_name: displayName, trip_count: 0, total_minutes: 0 }
+    userMap[displayName].trip_count++
+    const start = new Date(log.started_at)
+    const end = log.ended_at ? new Date(log.ended_at) : new Date()
+    const minutes = Math.round((end - start) / 60000)
+    userMap[displayName].total_minutes += minutes
+  }
+  const perUser = Object.values(userMap).sort((a, b) => b.total_minutes - a.total_minutes)
 
   // 每日使用次數
-  const daily = db.prepare(`
-    SELECT date(ul.started_at) as day,
-           COUNT(*) as trip_count
-    FROM usage_log ul
-    WHERE ul.started_at >= ?
-    GROUP BY date(ul.started_at)
-    ORDER BY day
-  `).all(cutoffStr);
+  const dailyMap = {}
+  for (const log of logs || []) {
+    const day = log.started_at.slice(0, 10)
+    dailyMap[day] = (dailyMap[day] || 0) + 1
+  }
+  const daily = Object.entries(dailyMap)
+    .map(([day, trip_count]) => ({ day, trip_count }))
+    .sort((a, b) => a.day.localeCompare(b.day))
 
   // 本週 vs 上週
-  const thisWeek = db.prepare(`
-    SELECT COUNT(*) as trips, COALESCE(SUM(
-      CAST((julianday(COALESCE(ended_at, datetime('now', 'localtime'))) - julianday(started_at)) * 24 * 60 AS INTEGER)
-    ), 0) as minutes
-    FROM usage_log
-    WHERE started_at >= date('now', 'weekday 1', '-7 days')
-  `).get();
+  const now = new Date()
+  const dayOfWeek = now.getDay()
+  const thisWeekStart = new Date(now)
+  thisWeekStart.setDate(now.getDate() - ((dayOfWeek + 6) % 7))
+  thisWeekStart.setHours(0, 0, 0, 0)
 
-  const lastWeek = db.prepare(`
-    SELECT COUNT(*) as trips, COALESCE(SUM(
-      CAST((julianday(COALESCE(ended_at, datetime('now', 'localtime'))) - julianday(started_at)) * 24 * 60 AS INTEGER)
-    ), 0) as minutes
-    FROM usage_log
-    WHERE started_at >= date('now', 'weekday 1', '-14 days')
-      AND started_at < date('now', 'weekday 1', '-7 days')
-  `).get();
+  const lastWeekStart = new Date(thisWeekStart)
+  lastWeekStart.setDate(lastWeekStart.getDate() - 7)
 
-  return { perUser, daily, thisWeek, lastWeek, range: `${days}天` };
+  const thisWeekEnd = new Date(thisWeekStart)
+  thisWeekEnd.setDate(thisWeekEnd.getDate() + 7)
+
+  function calcStats(logArray) {
+    let trips = 0
+    let minutes = 0
+    for (const log of logArray || []) {
+      trips++
+      const start = new Date(log.started_at)
+      const end = log.ended_at ? new Date(log.ended_at) : new Date()
+      minutes += Math.round((end - start) / 60000)
+    }
+    return { trips, minutes }
+  }
+
+  const thisWeekLogs = (logs || []).filter(l => {
+    const d = new Date(l.started_at)
+    return d >= thisWeekStart && d < thisWeekEnd
+  })
+  const lastWeekLogs = (logs || []).filter(l => {
+    const d = new Date(l.started_at)
+    return d >= lastWeekStart && d < thisWeekStart
+  })
+
+  return {
+    perUser,
+    daily,
+    thisWeek: calcStats(thisWeekLogs),
+    lastWeek: calcStats(lastWeekLogs),
+    range: `${days}天`,
+  }
 }
 
 // ── Schedules ──
-function getSchedules(date) {
-  return getDb().prepare(`
-    SELECT s.*, u.display_name as user_display_name
-    FROM schedules s
-    JOIN users u ON s.user_id = u.id
-    WHERE s.date = ?
-    ORDER BY s.start_time
-  `).all(date);
+export async function getSchedules(date) {
+  const { data } = await supabase
+    .from('schedules')
+    .select('*, users!schedules_user_id_fkey(display_name)')
+    .eq('date', date)
+    .order('start_time')
+
+  return (data || []).map(s => ({
+    ...s,
+    user_display_name: s.users?.display_name,
+  }))
 }
 
-function getMonthSchedules(year, month) {
-  const start = `${year}-${String(month).padStart(2, '0')}-01`;
-  const lastDay = new Date(year, month, 0).getDate();
-  const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-  return getDb().prepare(`
-    SELECT s.*, u.display_name as user_display_name
-    FROM schedules s
-    JOIN users u ON s.user_id = u.id
-    WHERE s.date >= ? AND s.date <= ?
-    ORDER BY s.date, s.start_time
-  `).all(start, end);
+export async function getMonthSchedules(year, month) {
+  const start = `${year}-${String(month).padStart(2, '0')}-01`
+  const lastDay = new Date(year, month, 0).getDate()
+  const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+
+  const { data } = await supabase
+    .from('schedules')
+    .select('*, users!schedules_user_id_fkey(display_name)')
+    .gte('date', start)
+    .lte('date', end)
+    .order('date')
+    .order('start_time')
+
+  return (data || []).map(s => ({
+    ...s,
+    user_display_name: s.users?.display_name,
+  }))
 }
 
-function getActiveSchedule() {
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-  const currentTime = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  return getDb().prepare(`
-    SELECT s.*, u.display_name as user_display_name
-    FROM schedules s
-    JOIN users u ON s.user_id = u.id
-    WHERE s.date = ? AND s.start_time <= ? AND s.end_time > ?
-    LIMIT 1
-  `).get(today, currentTime, currentTime);
-}
+export async function getActiveSchedule() {
+  const now = new Date()
+  const today = now.toISOString().slice(0, 10)
+  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 
-function addSchedule(userId, date, startTime, endTime, purpose = '') {
-  const db = getDb();
-  const sameUserOverlaps = db.prepare(`
-    SELECT COUNT(*) as count FROM schedules
-    WHERE date = ? AND user_id = ?
-    AND NOT (end_time <= ? OR start_time >= ?)
-  `).get(date, userId, startTime, endTime);
-  if (sameUserOverlaps.count > 0) {
-    return { error: '該時段已有您的預約，請選擇其他時間' };
+  const { data } = await supabase
+    .from('schedules')
+    .select('*, users!schedules_user_id_fkey(display_name)')
+    .eq('date', today)
+    .lte('start_time', currentTime)
+    .gt('end_time', currentTime)
+    .limit(1)
+    .maybeSingle()
+
+  if (data) {
+    return { ...data, user_display_name: data.users?.display_name }
   }
-  const result = db.prepare(
-    'INSERT INTO schedules (user_id, date, start_time, end_time, purpose) VALUES (?, ?, ?, ?, ?)'
-  ).run(userId, date, startTime, endTime, purpose);
-  return getDb().prepare(`
-    SELECT s.*, u.display_name as user_display_name
-    FROM schedules s
-    JOIN users u ON s.user_id = u.id
-    WHERE s.id = ?
-  `).get(result.lastInsertRowid);
+  return null
 }
 
-function deleteSchedule(id) {
-  getDb().prepare('DELETE FROM schedules WHERE id = ?').run(id);
+export async function addSchedule(userId, date, startTime, endTime, purpose = '') {
+  // 檢查重疊
+  const { data: overlaps } = await supabase
+    .from('schedules')
+    .select('id')
+    .eq('date', date)
+    .eq('user_id', userId)
+    .lt('start_time', endTime)
+    .gt('end_time', startTime)
+    .limit(1)
+
+  if (overlaps && overlaps.length > 0) {
+    return { error: '該時段已有您的預約，請選擇其他時間' }
+  }
+
+  const { data, error } = await supabase
+    .from('schedules')
+    .insert({ user_id: userId, date, start_time: startTime, end_time: endTime, purpose })
+    .select('*, users!schedules_user_id_fkey(display_name)')
+    .single()
+
+  if (error) return { error: error.message }
+  return { ...data, user_display_name: data.users?.display_name }
 }
 
-module.exports = {
-  getUser,
-  verifyPin,
-  getCarStatus,
-  takeCar,
-  returnCar,
-  getSchedules,
-  getMonthSchedules,
-  getActiveSchedule,
-  addSchedule,
-  deleteSchedule,
-  getUsageStats,
-};
+export async function deleteSchedule(id) {
+  await supabase.from('schedules').delete().eq('id', id)
+}

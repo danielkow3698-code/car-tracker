@@ -1,69 +1,41 @@
 import '@/styles/globals.css'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
-import io from 'socket.io-client'
-
-let socket;
-
-export function useSocket() {
-  const [connected, setConnected] = useState(false);
-
-  useEffect(() => {
-    if (!socket) {
-      socket = io({
-        transports: ['websocket', 'polling'],
-      });
-    }
-    if (socket.connected) {
-      setConnected(true);
-    }
-    socket.on('connect', () => setConnected(true));
-    socket.on('disconnect', () => setConnected(false));
-    return () => {
-      socket.off('connect');
-      socket.off('disconnect');
-    };
-  }, []);
-
-  return { socket, connected };
-}
-
-export { socket };
 
 // PWA: register service worker
 function registerSW() {
   if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register('/sw.js').catch(() => {})
   }
 }
 
 export default function App({ Component, pageProps }) {
-  const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true); // 防止閃登入頁
+  const router = useRouter()
+  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    registerSW();
-    const saved = localStorage.getItem('car_tracker_user');
+    registerSW()
+    const saved = localStorage.getItem('car_tracker_user')
     if (saved) {
-      setUser(JSON.parse(saved));
+      setUser(JSON.parse(saved))
     }
-    setLoading(false);
-  }, []);
+    setLoading(false)
+  }, [])
 
   const login = (userData, remember = false) => {
-    setUser(userData);
+    setUser(userData)
     const data = remember
-      ? { ...userData, pin: userData.pin }  // 記住 PIN
-      : { id: userData.id, name: userData.name, display_name: userData.display_name }; // 不記 PIN
-    localStorage.setItem('car_tracker_user', JSON.stringify(data));
-  };
+      ? { ...userData, pin: userData.pin }
+      : { id: userData.id, name: userData.name, display_name: userData.display_name }
+    localStorage.setItem('car_tracker_user', JSON.stringify(data))
+  }
 
   const logout = () => {
-    setUser(null);
-    localStorage.removeItem('car_tracker_user');
-    router.push('/');
-  };
+    setUser(null)
+    localStorage.removeItem('car_tracker_user')
+    router.push('/')
+  }
 
   return (
     <Component

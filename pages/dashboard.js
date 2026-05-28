@@ -1,85 +1,94 @@
-import { useEffect, useState, useRef } from 'react'
-import { useSocket } from './_app'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { motion, AnimatePresence } from 'framer-motion'
 
+const POLL_INTERVAL = 3000 // 每 3 秒輪詢
+
 export default function Dashboard({ user, onLogout }) {
-  const router = useRouter();
-  const { socket, connected } = useSocket();
-  const [carStatus, setCarStatus] = useState(null);
-  const [note, setNote] = useState('');
-  const [toast, setToast] = useState(null);
-  const toastTimer = useRef(null);
+  const router = useRouter()
+  const [carStatus, setCarStatus] = useState(null)
+  const [note, setNote] = useState('')
+  const [toast, setToast] = useState(null)
+  const toastTimer = useRef(null)
 
   useEffect(() => {
-    if (!user) { router.push('/'); }
-  }, [user]);
+    if (!user) { router.push('/') }
+  }, [user])
 
-  // HTTP 初始載入
+  // 輪詢車輛狀態
   useEffect(() => {
-    fetch('/api/status')
-      .then(r => r.json())
-      .then(data => setCarStatus(data))
-      .catch(err => console.error(err));
-  }, []);
+    if (!user) return
+    const fetchStatus = () => {
+      fetch('/api/status')
+        .then(r => r.json())
+        .then(data => setCarStatus(data))
+        .catch(err => console.error(err))
+    }
+    fetchStatus()
+    const interval = setInterval(fetchStatus, POLL_INTERVAL)
+    return () => clearInterval(interval)
+  }, [user])
 
-  // Socket 即時更新
-  useEffect(() => {
-    if (!socket) return;
-    const handler = (status) => { setCarStatus(status); showToast('🔄 已同步'); };
-    socket.on('car_status', handler);
-    return () => socket.off('car_status', handler);
-  }, [socket]);
+  const showToast = useCallback((msg) => {
+    setToast(msg)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), 2000)
+  }, [])
 
-  const showToast = (msg) => {
-    setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 2000);
-  };
-
-  const handleTakeCar = () => {
-    if (!user) return;
+  const handleTakeCar = async () => {
+    if (!user) return
+    // 樂觀更新
     setCarStatus({
       status: 'in_use', user_id: user.id,
       user_display_name: user.display_name,
-      started_at: new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
+      started_at: new Date().toISOString(),
       note: note || '使用中', source: 'manual',
-    });
-    showToast('🚗 出發！一路順風');
-    setNote('');
-    if (socket && connected) socket.emit('car:take', { userId: user.id, note });
-  };
+    })
+    showToast('🚗 出發！一路順風')
+    setNote('')
+    try {
+      await fetch('/api/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'take', userId: user.id, note }),
+      })
+    } catch (e) { console.error(e) }
+  }
 
-  const handleReturnCar = () => {
-    if (!user) return;
+  const handleReturnCar = async () => {
+    if (!user) return
     setCarStatus({
       status: 'available', user_id: null,
       user_display_name: null, started_at: null,
       note: note || '車輛可用', source: 'manual',
-    });
-    showToast('✅ 歡迎回來！');
-    setNote('');
-    if (socket && connected) socket.emit('car:return', { note });
-  };
+    })
+    showToast('✅ 歡迎回來！')
+    setNote('')
+    try {
+      await fetch('/api/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'return', note }),
+      })
+    } catch (e) { console.error(e) }
+  }
 
-  if (!user) return null;
+  if (!user) return null
 
-  const isInUse = carStatus?.status === 'in_use';
-  const isMyUse = isInUse && carStatus?.user_id === user.id;
+  const isInUse = carStatus?.status === 'in_use'
+  const isMyUse = isInUse && carStatus?.user_id === user.id
 
   return (
     <div className="min-h-screen bg-mesh-light">
       <Head><title>用車狀態 - 家庭用車管理</title></Head>
 
-      {/* Animated background blobs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-96 h-96 bg-purple-200 rounded-full opacity-30 blur-3xl animate-pulse" />
         <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-blue-200 rounded-full opacity-30 blur-3xl animate-pulse delay-1000" />
       </div>
 
-      {/* Nav */}
       <motion.nav
         initial={{ y: -60, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -93,10 +102,6 @@ export default function Dashboard({ user, onLogout }) {
             className="text-xl"
           >🚗</motion.span>
           <span className="font-bold text-gray-700">Car Tracker</span>
-          <motion.span
-            animate={{ opacity: connected ? 1 : 0.4, scale: connected ? 1 : 0.8 }}
-            className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`}
-          />
         </div>
         <div className="flex items-center gap-4">
           <Link href="/calendar" className="text-blue-500 hover:text-blue-700 text-sm font-medium transition-colors">
@@ -120,7 +125,6 @@ export default function Dashboard({ user, onLogout }) {
         </div>
       </motion.nav>
 
-      {/* Toast */}
       <AnimatePresence>
         {toast && (
           <motion.div
@@ -135,7 +139,6 @@ export default function Dashboard({ user, onLogout }) {
         )}
       </AnimatePresence>
 
-      {/* Main */}
       <div className="max-w-lg mx-auto px-4 pt-10 pb-20 relative z-10">
         {!carStatus ? (
           <div className="glass-strong rounded-3xl shadow-xl p-12 text-center">
@@ -148,7 +151,6 @@ export default function Dashboard({ user, onLogout }) {
           </div>
         ) : (
           <>
-            {/* Car Status Card */}
             <motion.div
               initial={{ opacity: 0, y: 40 }}
               animate={{ opacity: 1, y: 0 }}
@@ -159,10 +161,8 @@ export default function Dashboard({ user, onLogout }) {
                   ? 'bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 border-2 border-yellow-300'
                   : 'bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 border-2 border-emerald-300'
               }`}>
-                {/* Decorative top bar */}
                 <div className={`absolute top-0 left-0 right-0 h-1.5 ${isInUse ? 'bg-gradient-to-r from-yellow-400 to-orange-400' : 'bg-gradient-to-r from-emerald-400 to-teal-400'}`} />
 
-                {/* Animated Car Icon */}
                 <motion.div
                   className="text-7xl mb-3"
                   animate={isInUse ? {
@@ -173,13 +173,11 @@ export default function Dashboard({ user, onLogout }) {
                   }}
                   transition={isInUse
                     ? { duration: 2, repeat: Infinity, ease: 'easeInOut' }
-                    : { duration: 3, repeat: Infinity, ease: 'easeInOut' }
-                  }
+                    : { duration: 3, repeat: Infinity, ease: 'easeInOut' }}
                 >
                   {isInUse ? '🚗💨' : '🚗'}
                 </motion.div>
 
-                {/* Status Text */}
                 <motion.h2
                   key={carStatus.status}
                   initial={{ scale: 0.8, opacity: 0 }}
@@ -211,10 +209,9 @@ export default function Dashboard({ user, onLogout }) {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     className="text-sm text-gray-500 mt-1"
-                  >🕐 從 {carStatus.started_at} 開始</motion.p>
+                  >🕐 從 {new Date(carStatus.started_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })} 開始</motion.p>
                 )}
 
-                {/* Note */}
                 <AnimatePresence mode="wait">
                   {carStatus.note && (
                     <motion.p
@@ -227,7 +224,6 @@ export default function Dashboard({ user, onLogout }) {
                   )}
                 </AnimatePresence>
 
-                {/* Action Buttons */}
                 <div className="mt-8 space-y-3">
                   {!isInUse && (
                     <motion.div
@@ -290,77 +286,6 @@ export default function Dashboard({ user, onLogout }) {
                   )}
                 </div>
               </div>
-            </motion.div>
-
-            {/* Connection Warning */}
-            <AnimatePresence>
-              {!connected && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="mt-4 bg-red-50/80 backdrop-blur rounded-2xl p-4 text-red-600 text-sm text-center"
-                >
-                  ⚠️ 未連線到伺服器，重新連線後會自動同步
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Quick Links */}
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2, type: 'spring', stiffness: 80 }}
-              className="mt-6 space-y-3"
-            >
-              <Link href="/calendar">
-                <motion.div
-                  whileHover={{ scale: 1.02, x: 4 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="glass-strong rounded-2xl shadow-sm p-5 flex items-center justify-between cursor-pointer transition-all"
-                >
-                  <div>
-                    <div className="font-bold text-gray-700">📅 行事曆</div>
-                    <div className="text-sm text-gray-400 mt-0.5">規劃用車時間</div>
-                  </div>
-                  <motion.span
-                    animate={{ x: [0, 4, 0] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                    className="text-blue-400 text-lg"
-                  >→</motion.span>
-                </motion.div>
-              </Link>
-
-              <Link href="/stats">
-                <motion.div
-                  whileHover={{ scale: 1.02, x: 4 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="glass-strong rounded-2xl shadow-sm p-5 flex items-center justify-between cursor-pointer transition-all"
-                >
-                  <div>
-                    <div className="font-bold text-gray-700">📊 用車統計</div>
-                    <div className="text-sm text-gray-400 mt-0.5">查看使用紀錄與圖表</div>
-                  </div>
-                  <motion.span
-                    animate={{ x: [0, 4, 0] }}
-                    transition={{ duration: 2, repeat: Infinity, delay: 0.3 }}
-                    className="text-blue-400 text-lg"
-                  >→</motion.span>
-                </motion.div>
-              </Link>
-
-              {/* Current Status Badge */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.4 }}
-                className="glass rounded-2xl p-4 flex items-center gap-3"
-              >
-                <span className={`w-3 h-3 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'} animate-pulse`} />
-                <span className="text-sm text-gray-500">
-                  {connected ? '🟢 已連線 — 即時同步中' : '🔴 未連線'}
-                </span>
-              </motion.div>
             </motion.div>
           </>
         )}

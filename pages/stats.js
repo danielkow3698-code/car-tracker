@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useSocket } from './_app'
 import Link from 'next/link'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
@@ -11,7 +10,6 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineEleme
 
 export default function StatsPage({ user, onLogout }) {
   const router = useRouter();
-  const { connected } = useSocket();
   const [stats, setStats] = useState(null);
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
