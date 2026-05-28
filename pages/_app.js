@@ -1,6 +1,7 @@
 import '@/styles/globals.css'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
+import Head from 'next/head'
 
 // PWA: register service worker
 function registerSW() {
@@ -38,12 +39,22 @@ export default function App({ Component, pageProps }) {
   }
 
   return (
-    <Component
-      {...pageProps}
-      user={user}
-      appLoading={loading}
-      onLogin={login}
-      onLogout={logout}
-    />
+    <>
+      <Head>
+        <meta name="application-name" content="Car Tracker" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="Car Tracker" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <link rel="manifest" href="/manifest.json" />
+      </Head>
+      <Component
+        {...pageProps}
+        user={user}
+        appLoading={loading}
+        onLogin={login}
+        onLogout={logout}
+      />
+    </>
   )
 }
